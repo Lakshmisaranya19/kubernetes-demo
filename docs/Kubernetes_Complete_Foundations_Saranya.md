@@ -1,4 +1,4 @@
-# Kubernetes Complete Foundations: Layers to Clusters
+# Kubernetes Complete Foundations: Layers to Clusters (Combined)
 
 **Learning notes for Saranya | Running example: GameHub | Local setup: Minikube (Docker driver, Windows)**
 

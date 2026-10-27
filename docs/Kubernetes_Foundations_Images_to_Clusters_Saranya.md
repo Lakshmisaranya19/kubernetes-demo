@@ -1,4 +1,4 @@
-# Kubernetes Foundations — From Images to Clusters
+# Kubernetes Foundations — From Images to Clusters (Claude)
 
 **Learning notes for Saranya**  
 **Project example: GameHub**  

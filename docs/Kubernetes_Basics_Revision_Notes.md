@@ -1,4 +1,4 @@
-# Kubernetes Basics - Revision Notes
+# Kubernetes Basics - Revision Notes (ChatGPT)
 
 *A beginner-friendly guide using the GameHub application*
 
