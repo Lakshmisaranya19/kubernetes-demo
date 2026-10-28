@@ -369,3 +369,230 @@ MINIKUBE
 - **Dashboard:** a UI for exploring resources in the selected cluster.
 - **Image → Pod search:** inspect Pod container specifications in each cluster; the image name alone does not identify one unique cluster.
 
+
+---
+
+## 11. Learning update — 27 October 2026
+
+This section adds the concepts discussed today: cluster structure, `minikube` vs. `kubectl`, active profiles vs. contexts, switching between clusters, and checking Node readiness.
+
+### 11.1 What is a cluster?
+
+A Kubernetes cluster is the complete environment in which Kubernetes runs and manages applications. It includes the control plane and one or more Nodes.
+
+- **Control plane:** coordinates the cluster. Important components include the API server, scheduler, and controllers.
+- **Node:** a machine that runs Pods. In a local single-node Minikube setup, the same Node can perform control-plane and workload-running roles.
+- **Kubernetes resources:** objects such as Pods, Deployments, Services, and ConfigMaps that Kubernetes manages.
+
+A multi-node cluster has multiple Nodes. It may have dedicated control-plane Nodes and worker Nodes; it does not have to be exactly one master plus several workers.
+
+### 11.2 Single-node vs. multi-node cluster
+
+```text
+Single-node cluster                 Multi-node cluster
+
+Kubernetes Cluster                  Kubernetes Cluster
+└── One Node                        ├── Control-plane Node(s)
+    ├── Control-plane components   ├── Worker Node 1
+    └── Application Pods           │   └── Pods
+                                    └── Worker Node 2
+                                        └── Pods
+```
+
+This is a simplified diagram. In a single-node cluster, one Node can run both control-plane components and application workloads, depending on its configuration.
+
+### 11.3 `minikube` vs. `kubectl`
+
+These are different command-line tools with different main responsibilities.
+
+**Minikube** manages the lifecycle of local Minikube clusters.
+
+```powershell
+minikube start -p sample-cluster
+minikube status -p sample-cluster
+minikube stop -p sample-cluster
+minikube dashboard -p sample-cluster
+```
+
+- `start`: creates and starts the profile's cluster if needed, or starts the existing cluster.
+- `status`: checks the profile's cluster status.
+- `stop`: stops the cluster without deleting the profile.
+- `dashboard`: opens the Dashboard for the selected profile.
+
+**kubectl** communicates with the Kubernetes API to inspect and manage resources in a selected cluster.
+
+```powershell
+kubectl get nodes
+kubectl get pods
+kubectl get deployments
+kubectl get services
+```
+
+Examples of resource operations:
+
+```powershell
+kubectl --context=sample-cluster create deployment nginx-demo --image=nginx:latest
+kubectl --context=sample-cluster get deployments
+kubectl --context=sample-cluster get pods
+```
+
+**Remember:** Minikube manages the local cluster lifecycle. Kubernetes manages resources within the cluster, and `kubectl` is the command-line tool used to interact with those resources. Their visibility can overlap, but their main purposes differ.
+
+### 11.4 Active profile vs. current Kubernetes context
+
+These selections are related but independent.
+
+- **Active Minikube profile:** the default profile used by Minikube commands when no profile is explicitly specified.
+- **Current Kubernetes context:** the default cluster connection used by `kubectl` commands when no context is explicitly specified. A context can also include a user and namespace.
+
+The profile and context often have matching names, but they are not the same concept. It is possible for the active profile to be `minikube` while the current context is `sample-cluster`.
+
+#### Check the active Minikube profile
+
+```powershell
+minikube profile
+minikube profile list
+```
+
+#### Change the active Minikube profile
+
+```powershell
+minikube profile sample-cluster
+```
+
+To switch the active profile back:
+
+```powershell
+minikube profile minikube
+```
+
+Verify the selection:
+
+```powershell
+minikube profile list
+```
+
+Look at the **ACTIVE PROFILE** column.
+
+#### Check the current Kubernetes context
+
+```powershell
+kubectl config current-context
+kubectl config get-contexts
+```
+
+In `kubectl config get-contexts`, the `*` marks the current context.
+
+#### Change the current Kubernetes context
+
+Switch to `sample-cluster`:
+
+```powershell
+kubectl config use-context sample-cluster
+```
+
+Switch back to `minikube`:
+
+```powershell
+kubectl config use-context minikube
+```
+
+Verify the change:
+
+```powershell
+kubectl config current-context
+```
+
+**Important:** Changing the active Minikube profile does not necessarily change the current `kubectl` context. Changing the current context does not switch the active Minikube profile.
+
+### 11.5 Target a cluster without changing the current context
+
+Use `--context` to specify the cluster for one command.
+
+```powershell
+kubectl --context=minikube get deployments
+kubectl --context=sample-cluster get deployments
+```
+
+These commands inspect Deployments in different clusters without changing the default context.
+
+To create a Deployment specifically in `sample-cluster`:
+
+```powershell
+kubectl --context=sample-cluster create deployment nginx-demo --image=nginx:latest
+```
+
+Resources do not automatically move or appear in another cluster. The same image can be used in both clusters, but each cluster has its own Kubernetes resources.
+
+### 11.6 Check Node readiness
+
+The command to list Nodes is:
+
+```powershell
+kubectl get nodes
+```
+
+To inspect Nodes in a specific cluster:
+
+```powershell
+kubectl --context=sample-cluster get nodes -o wide
+```
+
+Check the `STATUS` column. A Node marked `Ready` is reporting that it is ready to accept workloads.
+
+Do not confuse this with:
+
+```powershell
+kubectl config get-contexts
+```
+
+That command lists contexts, not Nodes.
+
+### 11.7 Dashboard selection
+
+Open the Dashboard for a specific Minikube profile:
+
+```powershell
+minikube dashboard -p sample-cluster
+```
+
+Or:
+
+```powershell
+minikube dashboard -p minikube
+```
+
+The Dashboard's **Cluster name** label is a display label, not a selector that switches the cluster. Use `-p PROFILE_NAME` to choose the Minikube profile for the Dashboard command.
+
+### 11.8 Quick command reference
+
+| Goal | Command |
+|---|---|
+| List Minikube profiles | `minikube profile list` |
+| Show active Minikube profile | `minikube profile` |
+| Change active profile | `minikube profile sample-cluster` |
+| Check profile status | `minikube status -p sample-cluster` |
+| Show current context | `kubectl config current-context` |
+| List contexts | `kubectl config get-contexts` |
+| Switch context | `kubectl config use-context sample-cluster` |
+| List Nodes | `kubectl get nodes` |
+| List Pods in all namespaces in one cluster | `kubectl --context=sample-cluster get pods -A` |
+| List Deployments in one cluster | `kubectl --context=sample-cluster get deployments` |
+| Open Dashboard for a profile | `minikube dashboard -p sample-cluster` |
+
+### 11.9 Final mental model
+
+```text
+Minikube
+└── Manages local cluster lifecycle
+    ├── Profile: minikube
+    │   └── Kubernetes cluster and its resources
+    └── Profile: sample-cluster
+        └── Separate Kubernetes cluster and its resources
+
+kubectl
+└── Communicates with the cluster selected by the current context
+    └── Can also target a specific context using --context
+```
+
+**Key takeaway:** A profile is Minikube's default management selection; a context is `kubectl`'s default connection selection. Neither one indicates by itself whether an application Deployment is running.
