@@ -1,5 +1,8 @@
 # Kubernetes Clusters with Minikube — Beginner Notes
 
+- **Last updated: 29 October 2026**
+- **Reviewer: Lakshmi Saranya Dhulipala**
+
 > **Goal:** Understand what a Kubernetes cluster is, how Minikube creates and manages one, how to inspect clusters, open the right Dashboard, and trace a container image to its Pod.
 >
 > These notes use the Windows + Minikube + Docker-driver setup and the example profiles `minikube` and `sample-cluster`.
@@ -33,6 +36,200 @@ KUBERNETES CLUSTER
 ```
 
 **Remember:** A cluster can have multiple Nodes; each Node can run multiple Pods; each Pod can contain one or more containers. The same image can be used by many containers in different Pods or clusters.
+
+### Can a Kubernetes cluster have multiple control-plane Nodes?
+
+Yes. A Kubernetes cluster can have one or multiple Nodes running control-plane components.
+
+Remember:
+- Multiple control-plane Nodes can manage the **same Kubernetes cluster**.
+- They do not represent multiple independent Kubernetes clusters.
+- Having multiple control-plane Nodes helps avoid depending on a single Node and can provide **high availability**.
+
+#### Understanding with a company analogy
+
+Imagine a company with three managers.
+
+If each manager has a completely different responsibility:
+
+- Manager 1 → Finance
+- Manager 2 → Marketing
+- Manager 3 → Legal
+
+This is a division of responsibilities.
+
+However, imagine the company has three managers who are all capable of handling the company's management responsibilities.
+
+Why have three managers instead of depending on only one?
+
+To avoid depending on a single manager. If one manager becomes unavailable, another manager can take over certain responsibilities.
+
+A similar idea is used in Kubernetes:
+
+- Multiple control-plane Nodes run control-plane components.
+- They work together to manage the same Kubernetes cluster.
+- If one control-plane Node becomes unavailable, the remaining healthy components may continue managing the cluster, provided the cluster is configured for high availability.
+
+#### What is leader election?
+
+Even when multiple instances of a control-plane component are available, they do not always perform the same work simultaneously.
+
+Think about our three managers:
+
+- All three are capable of handling a particular responsibility.
+- One manager takes the lead for that responsibility.
+- The others remain available.
+- If the leading manager becomes unavailable, another can take over.
+
+Kubernetes uses a mechanism called **leader election** for certain control-plane components.
+
+For example, multiple Scheduler instances can be available, but one is elected as the active leader. If that leader becomes unavailable, another instance can take over.
+
+**Important distinction:**
+- Multiple instances provide alternatives if one becomes unavailable.
+- Leader election coordinates which instance actively performs a particular responsibility.
+- High availability is the overall design that helps the cluster continue operating despite certain failures.
+
+**Remember:** Multiple control-plane Nodes do not mean multiple clusters. They work together to manage one Kubernetes cluster.
+
+#### Visual hierarchy — Multiple control-plane Nodes
+
+```text
+                 KUBERNETES CLUSTER HA (HA - High Availability)
+                         |
+                         |
+          +--------------+--------------+
+          |              |              |
+       Node 1          Node 2          Node 3
+    (Control plane) (Control plane) (Control plane)
+          |              |              |
+     +----+----+    +----+----+    +----+----+
+     |    |    |    |    |    |    |    |    |
+    API  Sched Ctrl API  Sched Ctrl API  Sched Ctrl
+    Srv  uler  Mgr  Srv  uler  Mgr  Srv  uler  Mgr
+
+          All work together to manage
+             THE SAME CLUSTER
+```
+
+**How to read this diagram:**
+
+1. There is only **one Kubernetes cluster**.
+2. The cluster has three Nodes running control-plane components.
+3. The control-plane components are replicated across these Nodes in this simplified example.
+4. They work together to manage the same cluster.
+
+**Why three Nodes?**
+
+To avoid depending on a single Node. If one becomes unavailable, the remaining healthy components may continue managing the cluster, provided high availability is configured correctly.
+
+**Remember:** Three control-plane Nodes do not mean three Kubernetes clusters.
+One distinction to remember: having multiple control-plane Nodes is not automatically enough for HA; they must be configured to work together and tolerate failures.
+
+### What happens when a control-plane Node becomes unavailable?
+
+Suppose a Kubernetes cluster has multiple control-plane Nodes configured for high availability.
+
+If one control-plane Node becomes unavailable:
+
+- The cluster does not automatically become a new cluster.
+- The remaining healthy control-plane components may continue managing the same cluster.
+- This depends on the cluster's high-availability configuration and whether enough components remain available.
+
+If all required control-plane services become unavailable, Kubernetes may no longer be able to manage the cluster properly.
+
+However, this does not necessarily mean that existing application containers immediately stop running.
+
+#### Running an application vs. managing an application
+
+These are two different responsibilities.
+
+**1. Running an application**
+
+An application container that is already running on a healthy Worker Node may continue executing even when the control plane is unavailable.
+
+For example, an existing Nginx Pod may continue serving HTTP requests.
+
+**2. Managing an application**
+
+The control plane is responsible for managing Kubernetes resources and maintaining the desired state.
+
+If the API Server is unavailable:
+
+- `kubectl` cannot communicate with the cluster through that API Server.
+- New Kubernetes management requests, such as creating a Deployment, cannot be submitted successfully.
+- Kubernetes controllers cannot reliably perform their normal reconciliation work through the unavailable API Server.
+
+#### Does application traffic pass through the API Server?
+
+**No.** The API Server handles Kubernetes API requests. It is not responsible for processing every application request.
+
+There are two different communication paths:
+
+**Kubernetes management communication:**
+
+```text
+User
+  |
+  v
+kubectl
+  |
+  v
+API Server
+  |
+  v
+Kubernetes resources and management
+```
+
+Example:
+
+```powershell
+kubectl get pods
+kubectl create deployment nginx --image=nginx
+```
+
+These commands require communication with the API Server.
+
+**Application communication:**
+
+```text
+Browser / User
+      |
+      v
+Service / Kubernetes Networking
+      |
+      v
+Application Pod
+      |
+      v
+Application Response
+```
+
+For example, when a user opens an Nginx website, the request reaches the Nginx Pod through the application's networking path. It does not need to pass through the API Server.
+
+Therefore, an already-running Nginx Pod may continue serving requests even when the API Server is unavailable, provided the Worker Node, Pod, and networking remain healthy.
+
+#### Example: What happens if the API Server crashes?
+
+Assume:
+- The API Server is unavailable.
+- The Worker Node is healthy.
+- An Nginx Pod is already running on that Worker Node.
+
+| Activity | Expected behaviour |
+|---|---|
+| `kubectl get pods` | Cannot communicate with the unavailable API Server. |
+| User opens the Nginx website | May continue working. |
+| Nginx serves an HTTP request | Can continue normally. |
+| Create a new Deployment using `kubectl` | Cannot submit the request successfully through the unavailable API Server. |
+| Kubernetes manages workload changes | Management and reconciliation may be affected. |
+
+**Remember:**
+
+- API Server → Kubernetes management communication.
+- Service / Networking → Application traffic.
+- Existing application containers may continue running without the API Server handling every request.
+- Kubernetes management operations require an available API Server.
 
 ### Why is a cluster useful?
 
@@ -90,6 +287,38 @@ With the **Docker driver**, Minikube typically uses a Docker container as the lo
 
 **Creating a cluster does not automatically create your application Deployment or its Pods.** A fresh cluster can have system Pods, but your application workloads must be created separately.
 
+
+### Minikube vs. `kubectl`
+
+These are different command-line tools with different main responsibilities.
+
+**Minikube** manages the lifecycle of local Minikube clusters:
+
+```powershell
+minikube start -p sample-cluster
+minikube status -p sample-cluster
+minikube stop -p sample-cluster
+minikube dashboard -p sample-cluster
+```
+
+- `start`: creates and starts the profile's cluster if needed, or starts the existing cluster.
+- `status`: checks the profile's cluster status.
+- `stop`: stops the cluster without deleting the profile.
+- `dashboard`: opens the Dashboard for the selected profile.
+
+**`kubectl`** communicates with the Kubernetes API to inspect and manage resources inside a selected cluster:
+
+```powershell
+kubectl get nodes
+kubectl get pods
+kubectl get deployments
+kubectl get services
+```
+
+For example, `kubectl --context=sample-cluster create deployment nginx-demo --image=nginx:latest` creates a Deployment in the `sample-cluster` context.
+
+**Remember:** Minikube manages the local cluster lifecycle. Kubernetes manages resources within the cluster, and `kubectl` is the command-line tool used to interact with those resources.
+
 ---
 
 ## 3. Is a profile the same as a cluster?
@@ -127,6 +356,71 @@ Minikube creates and manages a cluster under that profile if it does not already
 | Node name | Name of a Node inside the selected cluster | `kubectl get nodes` |
 
 A profile and a context often share a name, such as `sample-cluster`, but don't assume they are identical concepts.
+
+
+### Active Minikube profile vs. current Kubernetes context
+
+These selections are related but independent.
+
+- **Active Minikube profile:** the default profile used by Minikube commands when no profile is explicitly specified.
+- **Current Kubernetes context:** the default cluster connection used by `kubectl` commands when no context is explicitly specified. A context can also include a user and namespace.
+
+It is possible for the active Minikube profile to be `minikube` while the current Kubernetes context is `sample-cluster`. Changing one does not automatically change the other.
+
+#### Check the active Minikube profile
+
+```powershell
+minikube profile
+minikube profile list
+```
+
+#### Change the active Minikube profile
+
+```powershell
+minikube profile sample-cluster
+```
+
+To switch back:
+
+```powershell
+minikube profile minikube
+```
+
+Use `minikube profile list` to verify the selection in the **ACTIVE PROFILE** column.
+
+#### Check or change the current Kubernetes context
+
+```powershell
+kubectl config current-context
+kubectl config get-contexts
+```
+
+In `kubectl config get-contexts`, the `*` marks the current context.
+
+Switch to `sample-cluster`:
+
+```powershell
+kubectl config use-context sample-cluster
+```
+
+Switch back to `minikube`:
+
+```powershell
+kubectl config use-context minikube
+```
+
+Verify with `kubectl config current-context`.
+
+#### Target one cluster for a single command
+
+Use `--context` without changing the current context:
+
+```powershell
+kubectl --context=minikube get deployments
+kubectl --context=sample-cluster get deployments
+```
+
+Resources do not automatically move or appear in another cluster. The same image can be used in both clusters, but each cluster has its own Kubernetes resources.
 
 ---
 
@@ -177,6 +471,11 @@ kubectl --context=sample-cluster cluster-info
 ```bash
 kubectl --context=sample-cluster get nodes -o wide
 ```
+
+
+Check the `STATUS` column. A Node marked `Ready` is reporting that it is ready to accept workloads.
+
+Do not confuse `kubectl config get-contexts` with `kubectl get nodes`: the first lists configured contexts, while the second lists Nodes in the current context. Use `--context=PROFILE_OR_CONTEXT_NAME` when you want to target a specific cluster explicitly.
 
 **Tip:** Use an explicit `--context=...` when you want to be certain which cluster a `kubectl` command targets.
 
@@ -315,14 +614,45 @@ kubectl run my-nginx --image=nginx:latest
 
 Here, `my-nginx` is the Pod name and `nginx:latest` is the image.
 
-Pods created by a Deployment are usually named automatically, with a generated suffix. For example:
+Pods created by a Deployment are usually named automatically, with generated name parts. For example:
 
 ```text
-hello-minikube-fb6fc86f8-44lwx
-└──── Deployment/ReplicaSet-related name ────┘
+Deployment: gamehub                 ← Name you choose
+└── ReplicaSet: gamehub-7abc123     ← Generated name
+    └── Pod: gamehub-7abc123-x1y2z  ← Generated name
 ```
 
-You normally change the Deployment's name or configuration rather than manually naming each Pod it creates.
+You can choose the name of a Deployment, for example:
+
+```powershell
+kubectl create deployment gamehub --image=nginx:latest
+```
+
+Here, `gamehub` is the Deployment name, not the Pod name. The ReplicaSet and Pod names are generated by Kubernetes.
+
+| Resource | Can you choose its name with the basic command? |
+|---|---|
+| Standalone Pod created with `kubectl run my-nginx --image=nginx:latest` | Yes — `my-nginx` is the Pod name |
+| Deployment created with `kubectl create deployment gamehub --image=nginx:latest` | Yes — `gamehub` is the Deployment name |
+| ReplicaSet created by a Deployment | No — its name is generated |
+| Pod created by a Deployment | No — its name is generated |
+
+### What happens to the Pod name if a Pod is replaced?
+
+If a Pod managed by a Deployment/ReplicaSet is replaced, the replacement Pod can have a different name even though the Deployment name remains the same.
+
+```text
+Deployment: gamehub                    ← Same name
+└── ReplicaSet: gamehub-7abc123        ← Same in this example
+    ├── Old Pod: gamehub-7abc123-x1y2z  ← Crashed/removed
+    └── New Pod: gamehub-7abc123-p9q8r  ← Replacement
+```
+
+The Deployment-related prefix usually remains the same when the same ReplicaSet creates the replacement, while the Pod-specific suffix changes. If a Deployment update creates a new ReplicaSet, the ReplicaSet-related part can change too.
+
+**Important distinction:** A standalone Pod does not automatically get recreated just because it crashes. A Deployment manages Pods through a ReplicaSet and works to maintain the desired number of replicas.
+
+Because Pods can be replaced, applications should generally be reached through a Service rather than by relying on a specific Pod name or Pod IP.
 
 ---
 
@@ -332,6 +662,11 @@ You normally change the Deployment's name or configuration rather than manually 
 |---|---|
 | Create/start a named profile's cluster | `minikube start -p sample-cluster` |
 | List Minikube profiles | `minikube profile list` |
+| Show active Minikube profile | `minikube profile` |
+| Change active Minikube profile | `minikube profile sample-cluster` |
+| Show current Kubernetes context | `kubectl config current-context` |
+| List Kubernetes contexts | `kubectl config get-contexts` |
+| Switch Kubernetes context | `kubectl config use-context sample-cluster` |
 | Check a profile's status | `minikube status -p sample-cluster` |
 | Open its Dashboard | `minikube dashboard -p sample-cluster` |
 | Show current context | `kubectl config current-context` |
@@ -339,7 +674,9 @@ You normally change the Deployment's name or configuration rather than manually 
 | List kubeconfig cluster entries | `kubectl config get-clusters` |
 | Show cluster information | `kubectl --context=sample-cluster cluster-info` |
 | List Nodes | `kubectl --context=sample-cluster get nodes -o wide` |
-| List Pods in all namespaces | `kubectl --context=sample-cluster get pods -A -o wide` |
+
+| List Deployments in a specific cluster | `kubectl --context=sample-cluster get deployments` |
+| List Pods in all namespaces in a specific cluster | `kubectl --context=sample-cluster get pods -A` || List Pods in all namespaces | `kubectl --context=sample-cluster get pods -A -o wide` |
 | List Pods with image names | Use the JSONPath command in Section 7 |
 
 ---
@@ -368,231 +705,3 @@ MINIKUBE
 - **Context:** tells `kubectl` which configured cluster connection to use.
 - **Dashboard:** a UI for exploring resources in the selected cluster.
 - **Image → Pod search:** inspect Pod container specifications in each cluster; the image name alone does not identify one unique cluster.
-
-
----
-
-## 11. Learning update — 27 October 2026
-
-This section adds the concepts discussed today: cluster structure, `minikube` vs. `kubectl`, active profiles vs. contexts, switching between clusters, and checking Node readiness.
-
-### 11.1 What is a cluster?
-
-A Kubernetes cluster is the complete environment in which Kubernetes runs and manages applications. It includes the control plane and one or more Nodes.
-
-- **Control plane:** coordinates the cluster. Important components include the API server, scheduler, and controllers.
-- **Node:** a machine that runs Pods. In a local single-node Minikube setup, the same Node can perform control-plane and workload-running roles.
-- **Kubernetes resources:** objects such as Pods, Deployments, Services, and ConfigMaps that Kubernetes manages.
-
-A multi-node cluster has multiple Nodes. It may have dedicated control-plane Nodes and worker Nodes; it does not have to be exactly one master plus several workers.
-
-### 11.2 Single-node vs. multi-node cluster
-
-```text
-Single-node cluster                 Multi-node cluster
-
-Kubernetes Cluster                  Kubernetes Cluster
-└── One Node                        ├── Control-plane Node(s)
-    ├── Control-plane components   ├── Worker Node 1
-    └── Application Pods           │   └── Pods
-                                    └── Worker Node 2
-                                        └── Pods
-```
-
-This is a simplified diagram. In a single-node cluster, one Node can run both control-plane components and application workloads, depending on its configuration.
-
-### 11.3 `minikube` vs. `kubectl`
-
-These are different command-line tools with different main responsibilities.
-
-**Minikube** manages the lifecycle of local Minikube clusters.
-
-```powershell
-minikube start -p sample-cluster
-minikube status -p sample-cluster
-minikube stop -p sample-cluster
-minikube dashboard -p sample-cluster
-```
-
-- `start`: creates and starts the profile's cluster if needed, or starts the existing cluster.
-- `status`: checks the profile's cluster status.
-- `stop`: stops the cluster without deleting the profile.
-- `dashboard`: opens the Dashboard for the selected profile.
-
-**kubectl** communicates with the Kubernetes API to inspect and manage resources in a selected cluster.
-
-```powershell
-kubectl get nodes
-kubectl get pods
-kubectl get deployments
-kubectl get services
-```
-
-Examples of resource operations:
-
-```powershell
-kubectl --context=sample-cluster create deployment nginx-demo --image=nginx:latest
-kubectl --context=sample-cluster get deployments
-kubectl --context=sample-cluster get pods
-```
-
-**Remember:** Minikube manages the local cluster lifecycle. Kubernetes manages resources within the cluster, and `kubectl` is the command-line tool used to interact with those resources. Their visibility can overlap, but their main purposes differ.
-
-### 11.4 Active profile vs. current Kubernetes context
-
-These selections are related but independent.
-
-- **Active Minikube profile:** the default profile used by Minikube commands when no profile is explicitly specified.
-- **Current Kubernetes context:** the default cluster connection used by `kubectl` commands when no context is explicitly specified. A context can also include a user and namespace.
-
-The profile and context often have matching names, but they are not the same concept. It is possible for the active profile to be `minikube` while the current context is `sample-cluster`.
-
-#### Check the active Minikube profile
-
-```powershell
-minikube profile
-minikube profile list
-```
-
-#### Change the active Minikube profile
-
-```powershell
-minikube profile sample-cluster
-```
-
-To switch the active profile back:
-
-```powershell
-minikube profile minikube
-```
-
-Verify the selection:
-
-```powershell
-minikube profile list
-```
-
-Look at the **ACTIVE PROFILE** column.
-
-#### Check the current Kubernetes context
-
-```powershell
-kubectl config current-context
-kubectl config get-contexts
-```
-
-In `kubectl config get-contexts`, the `*` marks the current context.
-
-#### Change the current Kubernetes context
-
-Switch to `sample-cluster`:
-
-```powershell
-kubectl config use-context sample-cluster
-```
-
-Switch back to `minikube`:
-
-```powershell
-kubectl config use-context minikube
-```
-
-Verify the change:
-
-```powershell
-kubectl config current-context
-```
-
-**Important:** Changing the active Minikube profile does not necessarily change the current `kubectl` context. Changing the current context does not switch the active Minikube profile.
-
-### 11.5 Target a cluster without changing the current context
-
-Use `--context` to specify the cluster for one command.
-
-```powershell
-kubectl --context=minikube get deployments
-kubectl --context=sample-cluster get deployments
-```
-
-These commands inspect Deployments in different clusters without changing the default context.
-
-To create a Deployment specifically in `sample-cluster`:
-
-```powershell
-kubectl --context=sample-cluster create deployment nginx-demo --image=nginx:latest
-```
-
-Resources do not automatically move or appear in another cluster. The same image can be used in both clusters, but each cluster has its own Kubernetes resources.
-
-### 11.6 Check Node readiness
-
-The command to list Nodes is:
-
-```powershell
-kubectl get nodes
-```
-
-To inspect Nodes in a specific cluster:
-
-```powershell
-kubectl --context=sample-cluster get nodes -o wide
-```
-
-Check the `STATUS` column. A Node marked `Ready` is reporting that it is ready to accept workloads.
-
-Do not confuse this with:
-
-```powershell
-kubectl config get-contexts
-```
-
-That command lists contexts, not Nodes.
-
-### 11.7 Dashboard selection
-
-Open the Dashboard for a specific Minikube profile:
-
-```powershell
-minikube dashboard -p sample-cluster
-```
-
-Or:
-
-```powershell
-minikube dashboard -p minikube
-```
-
-The Dashboard's **Cluster name** label is a display label, not a selector that switches the cluster. Use `-p PROFILE_NAME` to choose the Minikube profile for the Dashboard command.
-
-### 11.8 Quick command reference
-
-| Goal | Command |
-|---|---|
-| List Minikube profiles | `minikube profile list` |
-| Show active Minikube profile | `minikube profile` |
-| Change active profile | `minikube profile sample-cluster` |
-| Check profile status | `minikube status -p sample-cluster` |
-| Show current context | `kubectl config current-context` |
-| List contexts | `kubectl config get-contexts` |
-| Switch context | `kubectl config use-context sample-cluster` |
-| List Nodes | `kubectl get nodes` |
-| List Pods in all namespaces in one cluster | `kubectl --context=sample-cluster get pods -A` |
-| List Deployments in one cluster | `kubectl --context=sample-cluster get deployments` |
-| Open Dashboard for a profile | `minikube dashboard -p sample-cluster` |
-
-### 11.9 Final mental model
-
-```text
-Minikube
-└── Manages local cluster lifecycle
-    ├── Profile: minikube
-    │   └── Kubernetes cluster and its resources
-    └── Profile: sample-cluster
-        └── Separate Kubernetes cluster and its resources
-
-kubectl
-└── Communicates with the cluster selected by the current context
-    └── Can also target a specific context using --context
-```
-
-**Key takeaway:** A profile is Minikube's default management selection; a context is `kubectl`'s default connection selection. Neither one indicates by itself whether an application Deployment is running.
