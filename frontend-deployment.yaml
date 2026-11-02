@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gamehub-frontend
+  namespace: gamehub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gamehub-frontend
+  template:
+    metadata:
+      labels:
+        app: gamehub-frontend
+    spec:
+      containers:
+        - name: frontend
+          image: lakshmisaranya/gamehub:frontend-v1
+          ports:
+            - containerPort: 80
